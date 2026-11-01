@@ -36,6 +36,7 @@ def initialize():
     with db() as c:
         c.executescript('''
         CREATE TABLE IF NOT EXISTS places(id INTEGER PRIMARY KEY, name TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, category TEXT NOT NULL, source TEXT NOT NULL, verified REAL NOT NULL, expires REAL NOT NULL, wanted INTEGER DEFAULT 1, visited INTEGER DEFAULT 0, note TEXT DEFAULT '');
+        CREATE TABLE IF NOT EXISTS experiences(id INTEGER PRIMARY KEY, place_id INTEGER NOT NULL, summary TEXT NOT NULL, author TEXT NOT NULL, platform TEXT NOT NULL, url TEXT NOT NULL, published TEXT NOT NULL, source_type TEXT NOT NULL, limitation TEXT NOT NULL, created REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS evidence(id INTEGER PRIMARY KEY, place_id INTEGER, kind TEXT NOT NULL, text TEXT NOT NULL, created REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS locations(id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL, accuracy REAL NOT NULL, observed REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, place_id INTEGER, text TEXT NOT NULL, created REAL NOT NULL, status TEXT DEFAULT 'new');
@@ -119,6 +120,11 @@ def evaluate(trigger='timer', proactive=True):
         for walking, p in candidates[:1 if proactive else 3]:
             prefix = '你想去的' if p['wanted'] else '我发现'
             msg = f"{prefix}「{p['name']}」在附近，单程步行粗估 {walking} 分钟（直线距离估算，非导航路线）。{p['note']} 信息来源：{p['source']}。营业状态尚未核实，出发前请确认。"
+            from place_data import public_experiences
+            observations=public_experiences(p)
+            if observations:
+                item=observations[0]
+                msg += f" 体验线索：{item['summary']}（{item['platform']}，{item['published']}，1 篇样本，不代表当前客流）。"
             result.append({'place': p, 'walking_minutes_estimate': walking, 'text': msg})
             if proactive:
                 c.execute('INSERT INTO messages(place_id,text,created) VALUES(?,?,?)', (p['id'], msg, t))
@@ -126,10 +132,17 @@ def evaluate(trigger='timer', proactive=True):
         c.execute('INSERT INTO runs(trigger,decision,created) VALUES(?,?,?)', (trigger, decision, t))
         return {'decision': decision, 'recommendations': result}
 
+def decorate_place(p):
+    from place_data import public_experiences
+    samples=public_experiences(p)
+    return dict(p, experience_preview=samples[0] if samples else None, public_sample_count=len(samples))
+
 def state():
+    from place_data import provider_status
     with db() as c:
         return {
-            'places': [dict(x) for x in c.execute('SELECT * FROM places ORDER BY id DESC')],
+            'providers': provider_status(),
+            'places': [decorate_place(dict(x)) for x in c.execute('SELECT * FROM places ORDER BY id DESC')],
             'evidence': [dict(x) for x in c.execute('SELECT * FROM evidence ORDER BY id DESC LIMIT 100')],
             'messages': [dict(x) for x in c.execute('SELECT * FROM messages ORDER BY id DESC LIMIT 50')],
             'runs': [dict(x) for x in c.execute('SELECT * FROM runs ORDER BY id DESC LIMIT 20')],
@@ -137,7 +150,31 @@ def state():
             'settings': dict(c.execute('SELECT * FROM settings WHERE id=1').fetchone()),
         }
 
+def place_context(pid):
+    from place_data import public_experiences, fetch_amap_facts
+    with db() as c:
+        row=c.execute('SELECT * FROM places WHERE id=?',(int(pid),)).fetchone()
+        if not row:
+            raise ValueError('地点不存在')
+        p=dict(row)
+        supplied=[dict(x) for x in c.execute('SELECT * FROM experiences WHERE place_id=? ORDER BY id DESC',(int(pid),))]
+    return {'place_id':p['id'],'public_experiences':public_experiences(p),'user_experiences':supplied,
+            'facts':fetch_amap_facts(p),'live_crowd':None}
+
 def action(path, d):
+    if path == '/api/place-context':
+        return place_context(d['place_id'])
+    if path == '/api/experiences':
+        from place_data import validate_experience
+        values=validate_experience(d)
+        with db() as c:
+            pid=int(d['place_id'])
+            if not c.execute('SELECT 1 FROM places WHERE id=?',(pid,)).fetchone():
+                raise ValueError('地点不存在')
+            c.execute('INSERT INTO experiences(place_id,summary,author,platform,url,published,source_type,limitation,created) VALUES(?,?,?,?,?,?,?,?,?)',
+                      (pid,values['summary'],values['author'],values['platform'],values['url'],values['published'],values['source_type'],values['limitation'],now()))
+        return {'ok':True}
+
     if path == '/api/demo-xintiandi':
         return enable_xintiandi_demo()
     if path == '/api/pulse':
@@ -200,7 +237,7 @@ def action(path, d):
             c.execute('UPDATE places SET source=?,verified=?,expires=? WHERE id=?', (source, now(), now()+7*86400, pid))
             c.execute('INSERT INTO evidence(place_id,kind,text,created) VALUES(?,?,?,?)', (pid, 'refresh', source, now()))
         elif path == '/api/delete-data':
-            for table in ('places', 'evidence', 'locations', 'messages', 'runs'):
+            for table in ('experiences', 'places', 'evidence', 'locations', 'messages', 'runs'):
                 c.execute('DELETE FROM '+table)
             c.execute('UPDATE settings SET proactive=0 WHERE id=1')
         else:
