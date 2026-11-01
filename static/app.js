@@ -35,18 +35,18 @@ function renderAgent(){
  $('#adjust-time').textContent=`约 ${state.settings.minutes} 分钟 ⌄`;
  $('#status').textContent=state.settings.proactive?'已开启主动留意':'主动留意未开启';
  let title,body,action;
- if(!loc){title='先认识你的此时此地。';body='我还没有你的位置。告诉我从哪里出发，才知道哪个心愿值得现在提起。';action='<button data-agent-location>告诉你我的位置 ↗</button>'}
- else if(!fresh){title='我想先确认，你还在这里吗？';body='上次的位置已经过时，或精度不足。我会等你更新位置，再判断附近的机会。';action='<button data-agent-location>更新当前位置 ↗</button>'}
- else if(!wanted.length){title='你在这里，什么会让你心动？';body='我有了你的起点，但还不认识你想探索的地方。先告诉我一个心愿，我会把它和附近的机会联系起来。';action='<button data-add>告诉你一个想去的地方 ↗</button>'}
- else if(expired.length===wanted.length){title='出发前，有些信息需要再确认。';body='想去的地点信息已经过期。我暂时不会把它们当成可靠的出发建议。';action='<button data-tab="saved">一起更新地点信息 ↗</button>'}
- else{title='我有了起点，也记得你的心愿。';body=state.settings.proactive?'我会在时间和距离合适时提出建议。没有合适的机会，也会保持安静。':'你可以随时问我现在去哪；开启主动留意后，我也会把机会放到这里。';action=state.settings.proactive?'':'<button data-tab="profile">开启主动留意 ↗</button>'}
+ if(!loc){title='从哪里出发？';body='更新位置，我来找找附近的探索机会。';action='<button data-agent-location>开启附近探索 ↗</button>'}
+ else if(!fresh){title='换了地方？更新一下起点';body='有了准确的位置，才能找到顺路的好去处。';action='<button data-agent-location>更新当前位置 ↗</button>'}
+ else if(!wanted.length){title='先收下一个心动的地方';body='告诉我想去哪，合适的时候提醒你。';action='<button data-add>＋ 添加想去的地方</button>'}
+ else if(expired.length===wanted.length){title='心愿清单，该更新了';body='先确认地点信息，再安心出发。';action='<button data-tab="saved">一起更新地点信息 ↗</button>'}
+ else{title='下一站，值得期待';body=state.settings.proactive?'有合适的机会，我会在这里提醒你。':'随时问我去哪，也可以开启主动留意。';action=state.settings.proactive?'':'<button data-tab="profile">开启主动留意 ↗</button>'}
  $('#agent-context').innerHTML=`<article class="agent-note"><span class="note-dot">✧</span><div><h2>${title}</h2><p>${body}</p>${action}</div></article>`;
  const eligible=p=>p&&p.wanted&&!p.visited&&p.expires>Date.now()/1000;
  $('#answers').innerHTML=fresh?recommendations.filter(x=>eligible(state.places.find(p=>p.id===x.place.id))).map(x=>proposal(state.places.find(p=>p.id===x.place.id),x.text,x.walking_minutes_estimate)).join(''):'';
  $('#messages').innerHTML=state.messages.filter(m=>m.status==='new').slice(0,3).map(m=>{const p=state.places.find(p=>p.id===m.place_id);if(!p||!eligible(p)||recommendations.some(x=>x.place.id===p.id))return '';return `<div class="past-opportunity"><small>之前为你留意 · ${date(m.created)} · 当前条件需重新确认</small>${proposal(p,m.text)}</div>`}).join('');
  const trip=state.places.find(p=>p.id===tripId);
  $('#active-trip').innerHTML=trip?`<article class="trip-card"><span class="badge">↗ 这次的探索</span><h2>${esc(trip.name)}</h2><p>到访后告诉我真实感受。当前尚未确认你已到达。</p><a href="${mapLink(trip)}" target="_blank" rel="noopener noreferrer">打开地图 ↗</a><button data-finish>去过了，聊聊感受</button><button data-cancel-trip>取消这次探索</button></article>`:'';
- $('#memory-preview').innerHTML=state.evidence.slice(0,2).map(e=>{const p=state.places.find(p=>p.id===e.place_id);return `<div class="memory-fragment"><span>♡</span><div><small>${esc(labels[e.kind]||e.kind)} · ${esc(p?.name||'你的记录')}</small><p>${esc(e.text)}</p></div></div>`}).join('')||'<p class="memory-empty">还没有关于你的记忆。不替你猜，从你的第一句分享开始。</p>';
+ $('#memory-preview').innerHTML=state.evidence.slice(0,2).map(e=>{const p=state.places.find(p=>p.id===e.place_id);return `<div class="memory-fragment"><span>♡</span><div><small>${esc(labels[e.kind]||e.kind)} · ${esc(p?.name||'你的记录')}</small><p>${esc(e.text)}</p></div></div>`}).join('')||'<p class="memory-empty">喜欢的地方、真实的感受，会让下次推荐更懂你。</p>';
 }
 $('#adjust-time').onclick=()=>sheet('这次有多少时间？','<label>可探索的分钟数<input name="minutes" type="number" min="20" max="480" value="'+state.settings.minutes+'" required></label>','调整这次提议',async d=>{await api('/api/settings',{proactive:!!state.settings.proactive,minutes:Number(d.minutes)});await render();await findSuggestions();addConversation('agent',`这次按 ${d.minutes} 分钟重新找了候选，路程和停留都要留出时间。`)});
 document.addEventListener('click',e=>{if(e.target.closest('[data-agent-location]'))run(locate)});
