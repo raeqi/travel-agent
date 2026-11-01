@@ -43,6 +43,25 @@ def initialize():
         CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1), proactive INTEGER DEFAULT 0, minutes INTEGER DEFAULT 60, cooldown INTEGER DEFAULT 21600);
         INSERT OR IGNORE INTO settings(id) VALUES(1);
         ''')
+        for table, column, definition in (
+            ('places', 'origin', "TEXT NOT NULL DEFAULT 'user'"),
+            ('locations', 'simulated', 'INTEGER NOT NULL DEFAULT 0'),
+            ('locations', 'label', "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column not in [r['name'] for r in c.execute('PRAGMA table_info('+table+')')]:
+                c.execute('ALTER TABLE '+table+' ADD COLUMN '+column+' '+definition)
+
+def enable_xintiandi_demo():
+    from nearby import PLACES
+    with db() as c:
+        t = now()
+        c.execute("INSERT INTO locations(lat,lon,accuracy,observed,simulated,label) VALUES(31.2197,121.4752,100,?,1,'上海 · 新天地附近')", (t,))
+        c.execute('UPDATE settings SET proactive=1 WHERE id=1')
+        for p in PLACES:
+            if not c.execute("SELECT 1 FROM places WHERE name=? AND origin='nearby'", (p['name'],)).fetchone():
+                c.execute("INSERT INTO places(name,lat,lon,category,source,verified,expires,wanted,note,origin) VALUES(?,?,?,?,?,?,?,0,?,'nearby')",
+                          (p['name'],p['lat'],p['lon'],p['category'],p['source'],t,t+7*86400,p['note']))
+    return evaluate('simulated-location', True)
 
 def distance(a, b, x, y):
     r = math.pi / 180
@@ -81,12 +100,14 @@ def evaluate(trigger='timer', proactive=True):
             reason = '处于通知冷却期'
         candidates = []
         if not reason:
-            for p in c.execute('SELECT * FROM places WHERE wanted=1 AND visited=0'):
+            for p in c.execute("SELECT * FROM places WHERE visited=0 AND (wanted=1 OR origin='nearby') AND NOT EXISTS (SELECT 1 FROM evidence WHERE evidence.place_id=places.id AND evidence.kind='dislike')"):
                 if p['expires'] < t:
                     continue
                 if c.execute("SELECT 1 FROM messages WHERE place_id=? AND created>?", (p['id'], t-7*86400)).fetchone() and proactive:
                     continue
                 meters = distance(loc['lat'], loc['lon'], p['lat'], p['lon'])
+                if p['origin'] == 'nearby' and meters > 2000:
+                    continue
                 walking = math.ceil(meters / 65)
                 # Straight-line estimate, include return and at least 20 minutes at venue.
                 if walking*2+20 <= s['minutes']:
@@ -96,7 +117,8 @@ def evaluate(trigger='timer', proactive=True):
                 reason = '没有信息有效且在可用时间内的待探索地点'
         result = []
         for walking, p in candidates[:1 if proactive else 3]:
-            msg = f"你想去的「{p['name']}」在附近，单程步行粗估 {walking} 分钟（直线距离估算，非导航路线）。{p['note']} 信息来源：{p['source']}。营业状态尚未核实，出发前请确认。"
+            prefix = '你想去的' if p['wanted'] else '我发现'
+            msg = f"{prefix}「{p['name']}」在附近，单程步行粗估 {walking} 分钟（直线距离估算，非导航路线）。{p['note']} 信息来源：{p['source']}。营业状态尚未核实，出发前请确认。"
             result.append({'place': p, 'walking_minutes_estimate': walking, 'text': msg})
             if proactive:
                 c.execute('INSERT INTO messages(place_id,text,created) VALUES(?,?,?)', (p['id'], msg, t))
@@ -116,6 +138,10 @@ def state():
         }
 
 def action(path, d):
+    if path == '/api/demo-xintiandi':
+        return enable_xintiandi_demo()
+    if path == '/api/pulse':
+        return evaluate('page-open', True)
     if path == '/api/chat':
         from language import parse_intent
         utterance = text_field(d, 'text')
