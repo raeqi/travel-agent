@@ -51,17 +51,23 @@ def initialize():
         ):
             if column not in [r['name'] for r in c.execute('PRAGMA table_info('+table+')')]:
                 c.execute('ALTER TABLE '+table+' ADD COLUMN '+column+' '+definition)
+        # Upgrade the existing demo catalog without resetting location or consent.
+        if c.execute("SELECT 1 FROM places WHERE origin='nearby' LIMIT 1").fetchone():
+            insert_catalog(c)
+
+def insert_catalog(c):
+    from nearby import PLACES
+    t=now()
+    for p in PLACES:
+        if not c.execute("SELECT 1 FROM places WHERE name=? AND origin='nearby'", (p['name'],)).fetchone():
+            c.execute("INSERT INTO places(name,lat,lon,category,source,verified,expires,wanted,note,origin) VALUES(?,?,?,?,?,?,?,0,?,'nearby')",
+                      (p['name'],p['lat'],p['lon'],p['category'],p['source'],t,t+7*86400,p['note']))
 
 def enable_xintiandi_demo():
-    from nearby import PLACES
     with db() as c:
-        t = now()
-        c.execute("INSERT INTO locations(lat,lon,accuracy,observed,simulated,label) VALUES(31.2197,121.4752,100,?,1,'上海 · 新天地附近')", (t,))
+        c.execute("INSERT INTO locations(lat,lon,accuracy,observed,simulated,label) VALUES(31.2197,121.4752,100,?,1,'上海 · 新天地附近')", (now(),))
         c.execute('UPDATE settings SET proactive=1 WHERE id=1')
-        for p in PLACES:
-            if not c.execute("SELECT 1 FROM places WHERE name=? AND origin='nearby'", (p['name'],)).fetchone():
-                c.execute("INSERT INTO places(name,lat,lon,category,source,verified,expires,wanted,note,origin) VALUES(?,?,?,?,?,?,?,0,?,'nearby')",
-                          (p['name'],p['lat'],p['lon'],p['category'],p['source'],t,t+7*86400,p['note']))
+        insert_catalog(c)
     return evaluate('simulated-location', True)
 
 def distance(a, b, x, y):
