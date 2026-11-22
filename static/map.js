@@ -7,10 +7,10 @@ function mapMeters(a,b){const r=Math.PI/180;return 6371000*2*Math.asin(Math.min(
 function drawSelectedPlace(s){
  const p=mapCandidates.find(p=>p.id===mapSelectedId)||mapCandidates[0];mapSelectedId=p?.id||null;
  const el=document.querySelector('#map-card');
- if(!p){el.innerHTML='<div class="map-empty"><strong>这片地图，还在等一个好去处</strong><p>可以换个类别，或更新位置继续探索。</p><button data-tab="profile">查看位置与设置 ↗</button></div>';return}
- const m=s.location?Math.ceil(mapMeters(s.location,p)/65):null;
+ if(!p){el.innerHTML=`<div class="map-empty"><strong>当前没有可出发的地点</strong><p>${mapEsc(s.exploration.recommendations.length?'当前类别没有符合时间和反馈条件的地点。':s.exploration.decision)}</p><button data-tab="profile">查看位置与设置 ↗</button>${!s.location?'<button data-demo>试用新天地模拟探索</button>':''}<button data-tab="saved">查看清单与暂缓 ↗</button></div>`;return}
+ const r=p.recommendation;const m=r.walking_minutes_estimate;
  const active=s.messages.some(x=>x.place_id===p.id&&x.status==='new');
- el.innerHTML=`<article class="map-place"><div class="map-place-heading"><div><span class="badge">${active?'主动为你发现':'附近候选'} · ${mapEsc(p.category)}</span><h2>${mapEsc(p.name)}</h2></div><span class="place-glyph landmark-preview">${landmarkArt(p.category)}</span></div><p>${mapEsc(p.experience_preview?.summary||p.note)}</p><button class="experience-entry" data-map-details="${p.id}">${p.public_sample_count?'公开体验 · '+p.public_sample_count+' 篇历史样本 ↗':'查看地点信息与体验来源 ↗'}</button><div class="map-meta"><span>${m!==null?'单程粗估 '+m+' 分钟':'距离待定位'}</span><span>营业待确认 · 点位近似</span><button data-map-details="${p.id}">依据 ↗</button></div><div class="crowd-preview"><span class="crowd-dots">● ● ●</span> ${demoCrowd(p).label} <small>热度演示 · 非实时客流</small></div><div class="map-card-actions"><button data-go="${p.id}" data-map-start="${p.id}">就去这里 ↗</button><button data-feedback="later" data-id="${p.id}">下次再去</button></div></article>`;
+ el.innerHTML=`<article class="map-place"><div class="map-place-heading"><div><span class="badge">${active?'主动为你发现':'附近候选'} · ${mapEsc(p.category)}</span><h2>${mapEsc(p.name)}</h2></div><span class="place-glyph landmark-preview">${landmarkArt(p.category)}</span></div><p>${mapEsc(p.experience_preview?.summary||p.note)}</p><button class="experience-entry" data-map-details="${p.id}">${p.public_sample_count?'公开体验 · '+p.public_sample_count+' 篇历史样本 ↗':'查看地点信息与体验来源 ↗'}</button><div class="map-meta"><span>${m!==null?'单程粗估 '+m+' 分钟':'距离待定位'}</span><span>营业待确认 · 点位近似</span><button data-map-details="${p.id}">依据 ↗</button></div><p class="time-budget">往返粗估 ${r.round_trip_minutes_estimate} 分钟 + 停留 ${r.stop_minutes_assumption} 分钟 = 合计 ${r.total_minutes_estimate} 分钟</p><p class="map-assumptions">直线距离按每分钟65米估算，非导航路线；不计等候。</p><div class="crowd-preview"><span class="crowd-dots">● ● ●</span> ${demoCrowd(p).label} <small>热度演示 · 非实时客流</small></div><div class="map-card-actions"><button data-go="${p.id}" data-map-start="${p.id}">就去这里 ↗</button><button data-feedback="later" data-id="${p.id}">稍后</button></div><div class="map-card-feedback"><button data-feedback="dislike" data-id="${p.id}">不感兴趣</button></div></article>`;
 }
 function drawMapMarkers(s){
  if(!explorationMap)return;
@@ -23,8 +23,8 @@ function drawMapMarkers(s){
 function renderExplorationMap(s){
  const simulated=!!s.location?.simulated;
  document.querySelector('#map-location-label').textContent=s.location?(simulated?'上海 · 新天地附近 / 模拟位置':'最近位置 · '+new Date(s.location.observed*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})):'尚无位置 · 请先设置起点';
- mapCandidates=s.places.filter(p=>!p.visited&&p.expires>Date.now()/1000&&!s.evidence.some(e=>e.place_id===p.id&&e.kind==='dislike')&&(p.wanted||p.origin==='nearby')&&(mapFilter==='all'||p.category.includes(mapFilter))&&(!s.location||mapMeters(s.location,p)<=2000));
- mapCandidates.sort((a,b)=>{const ai=s.messages.some(m=>m.place_id===a.id&&m.status==='new')?0:1,bi=s.messages.some(m=>m.place_id===b.id&&m.status==='new')?0:1;return ai-bi||(s.location?mapMeters(s.location,a)-mapMeters(s.location,b):a.id-b.id)});
+ // Eligibility comes only from the same server result as conversation/delivery.
+ mapCandidates=s.exploration.recommendations.filter(r=>mapFilter==='all'||r.place.category.includes(mapFilter)).map(r=>({...r.place,recommendation:r}));
  drawSelectedPlace(s);
  if(!window.L){const e=document.querySelector('#map-load-status');e.hidden=false;e.textContent='地图组件未能加载，请联网后刷新。附近地点仍可在下方查看。';return}
  if(!explorationMap){explorationMap=L.map('exploration-map',{zoomControl:false,attributionControl:true}).setView([31.217,121.471],15);placeLayer=L.layerGroup().addTo(explorationMap);userLayer=L.layerGroup().addTo(explorationMap);

@@ -59,6 +59,8 @@ def fetch_amap_facts(place):
     key=os.environ.get('AMAP_WEB_SERVICE_KEY')
     if not key:
         return {'status':'not_configured','provider':'高德地图','message':'高德地图尚未连接，暂时没有平台评分或营业信息。'}
+    if place.get('lat') is None or place.get('lon') is None:
+        return {'status':'unlocated','provider':'高德地图','message':'地点尚未定位，先确认 WGS84 坐标，避免同名误配。'}
     if not (30.7<float(place['lat'])<31.9 and 120.8<float(place['lon'])<122.1):
         return {'status':'unsupported_region','provider':'高德地图','message':'当前适配器只匹配上海地点，避免跨城市同名误配。'}
     query=urlencode({'key':key,'keywords':place['name'],'region':'310100','city_limit':'true','page_size':10,'show_fields':'business,navi,photos'})

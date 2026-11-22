@@ -31,7 +31,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(self.locate()['recommendations'],[])
     def test_later_retains_interest_visited_removes(self):
         self.locate()
-        app.action('/api/feedback',dict(place_id=1,kind='later',text='赶时间'))
+        app.action('/api/feedback',dict(place_id=1,kind='later',text='赶时间',snoozed_until=app.now()+3600))
         self.assertEqual(app.state()['places'][0]['wanted'],1)
         app.action('/api/feedback',dict(place_id=1,kind='visited',text='陪朋友去，不代表喜欢'))
         self.assertEqual(app.evaluate('ask',False)['recommendations'],[])
